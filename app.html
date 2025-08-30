@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Agent POC - Multi-Tool Reasoning</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+        
+        .chat-container {
+            height: 500px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            background: #f8f9fa;
+        }
+        
+        .message {
+            margin: 10px;
+            padding: 12px;
+            border-radius: 10px;
+            max-width: 85%;
+            word-wrap: break-word;
+        }
+        
+        .user-message {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            margin-left: auto;
+        }
+        
+        .agent-message {
+            background: white;
+            border: 1px solid #e0e0e0;
+            margin-right: auto;
+        }
+        
+        .tool-call {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            margin: 5px 10px;
+            padding: 10px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .tool-result {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            margin: 5px 10px;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.9em;
+        }
+        
+        .code-execution {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 5px 0;
+        }
+        
+        .code-output {
+            background: #343a40;
+            color: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            margin-top: 5px;
+        }
+        
+        .typing-indicator {
+            display: none;
+            margin: 10px;
+            padding: 12px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            max-width: 85%;
+        }
+        
+        .typing-dots {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #999;
+            margin: 0 2px;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+        
+        .typing-dots:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dots:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #5a67d8, #6b46c1);
+        }
+        
+        .model-selector {
+            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+        }
+        
+        .model-selector:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+        
+        .search-result {
+            background: #e7f3ff;
+            border: 1px solid #b6d7ff;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 8px 0;
+        }
+        
+        .search-result h6 {
+            color: #1e40af;
+            margin-bottom: 5px;
+        }
+        
+        .search-result .url {
+            color: #059669;
+            font-size: 0.9em;
+            text-decoration: none;
+        }
+        
+        .aipipe-result {
+            background: #fef3e2;
+            border: 1px solid #fcd34d;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-10 col-xl-8">
+                <div class="main-container p-4">
+                    <div class="text-center mb-4">
+                        <h1 class="display-5 fw-bold text-primary mb-2">🤖 LLM Agent POC</h1>
+                        <p class="lead text-muted">Browser-Based Multi-Tool Reasoning Agent</p>
+                    </div>
+                    
+                    <!-- Configuration Panel -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <label for="modelProvider" class="form-label fw-bold">LLM Provider</label>
+                            <select id="modelProvider" class="form-select model-selector">
+                                <option value="">Select Provider</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="gemini">Google Gemini</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="apiKey" class="form-label fw-bold">API Key</label>
+                            <input type="password" id="apiKey" class="form-control" placeholder="Your API key">
+                        </div>
+                    </div>
+                    
+                    <!-- Optional API Keys for Tools -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <label for="searchApiKey" class="form-label fw-bold">Google Search API Key</label>
+                            <input type="password" id="searchApiKey" class="form-control" placeholder="Optional - for Google Search">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="searchEngineId" class="form-label fw-bold">Search Engine ID</label>
+                            <input type="text" id="searchEngineId" class="form-control" placeholder="Optional - Google CSE ID">
+                        </div>
+                    </div>
+                    
+                    <!-- Chat Interface -->
+                    <div class="chat-container mb-3" id="chatContainer">
+                        <div class="p-3 text-center text-muted">
+                            <h5>🚀 Ready to start! Ask me anything.</h5>
+                            <p>I can search the web, execute code, and use AI pipelines to help you.</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Typing Indicator -->
+                    <div class="typing-indicator" id="typingIndicator">
+                        <span>Agent is thinking</span>
+                        <span class="typing-dots"></span>
+                        <span class="typing-dots"></span>
+                        <span class="typing-dots"></span>
+                    </div>
+                    
+                    <!-- Input Area -->
+                    <div class="input-group">
+                        <input type="text" id="userInput" class="form-control" placeholder="Type your message..." />
+                        <button class="btn btn-primary" type="button" id="sendButton">
+                            <i class="fas fa-paper-plane"></i> Send
+                        </button>
+                    </div>
+                    
+                    <!-- Status Alerts -->
+                    <div id="alertContainer" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class LLMAgent {
+            constructor() {
+                this.messages = [];
+                this.tools = this.defineLLMTools();
+                this.isProcessing = false;
+                this.init();
+            }
+
+            init() {
+                this.setupEventListeners();
+                this.showAlert('Welcome! Configure your LLM provider and start chatting.', 'info');
+            }
+
+            setupEventListeners() {
+                const sendButton = document.getElementById('sendButton');
+                const userInput = document.getElementById('userInput');
+                
+                sendButton.addEventListener('click', () => this.handleUserInput());
+                userInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.handleUserInput();
+                });
+            }
+
+            defineLLMTools() {
+                return [
+                    {
+                        type: "function",
+                        function: {
+                            name: "web_search",
+                            description: "Search the web for current information using Google Search API",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    query: {
+                                        type: "string",
+                                        description: "The search query"
+                                    }
+                                },
+                                required: ["query"]
+                            }
+                        }
+                    },
+                    {
+                        type: "function",
+                        function: {
+                            name: "execute_code",
+                            description: "Execute JavaScript code in the browser sandbox",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    code: {
+                                        type: "string",
+                                        description: "JavaScript code to execute"
+                                    }
+                                },
+                                required: ["code"]
+                            }
+                        }
+                    },
+                    {
+                        type: "function",
+                        function: {
+                            name: "ai_pipe",
+                            description: "Use AI pipeline for data processing and analysis",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    task: {
+                                        type: "string",
+                                        description: "The AI task to perform"
+                                    },
+                                    data: {
+                                        type: "string",
+                                        description: "Input data for the AI pipeline"
+                                    }
+                                },
+                                required: ["task", "data"]
+                            }
+                        }
+                    }
+                ];
+            }
+
+            async handleUserInput() {
+                if (this.isProcessing) return;
+
+                const userInput = document.getElementById('userInput');
+                const message = userInput.value.trim();
+                
+                if (!message) return;
+                
+                if (!this.validateConfiguration()) return;
+
+                userInput.value = '';
+                this.addMessage('user', message);
+                
+                this.messages.push({
+                    role: 'user',
+                    content: message
+                });
+
+                await this.runAgentLoop();
+            }
+
+            validateConfiguration() {
+                const provider = document.getElementById('modelProvider').value;
+                const apiKey = document.getElementById('apiKey').value;
+
+                if (!provider) {
+                    this.showAlert('Please select an LLM provider.', 'warning');
+                    return false;
+                }
+
+                if (!apiKey) {
+                    this.showAlert('Please enter your API key.', 'warning');
+                    return false;
+                }
+
+                return true;
+            }
+
+            async runAgentLoop() {
+                this.isProcessing = true;
+                this.showTyping(true);
+
+                try {
+                    while (true) {
+                        const response = await this.callLLM();
+                        
+                        if (response.content) {
+                            this.addMessage('agent', response.content);
+                        }
+
+                        if (response.tool_calls && response.tool_calls.length > 0) {
+                            // Process tool calls
+                            const toolResults = await this.handleToolCalls(response.tool_calls);
+                            
+                            // Add tool results to conversation
+                            this.messages.push({
+                                role: 'assistant',
+                                content: response.content,
+                                tool_calls: response.tool_calls
+                            });
+
+                            for (const result of toolResults) {
+                                this.messages.push({
+                                    role: 'tool',
+                                    tool_call_id: result.tool_call_id,
+                                    content: result.content
+                                });
+                            }
+                        } else {
+                            // No more tool calls, add final assistant message and break
+                            this.messages.push({
+                                role: 'assistant',
+                                content: response.content
+                            });
+                            break;
+                        }
+                    }
+                } catch (error) {
+                    this.showAlert('Error: ' + error.message, 'danger');
+                    console.error('Agent loop error:', error);
+                } finally {
+                    this.isProcessing = false;
+                    this.showTyping(false);
+                }
+            }
+
+            async callLLM() {
+                const provider = document.getElementById('modelProvider').value;
+                const apiKey = document.getElementById('apiKey').value;
+
+                let endpoint, headers, body;
+
+                switch (provider) {
+                    case 'openai':
+                        endpoint = 'https://api.openai.com/v1/chat/completions';
+                        headers = {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        };
+                        body = {
+                            model: 'gpt-4o-mini',
+                            messages: this.messages,
+                            tools: this.tools,
+                            temperature: 0.7
+                        };
+                        break;
+
+                    case 'anthropic':
+                        endpoint = 'https://api.anthropic.com/v1/messages';
+                        headers = {
+                            'x-api-key': apiKey,
+                            'Content-Type': 'application/json',
+                            'anthropic-version': '2023-06-01'
+                        };
+                        // Note: Anthropic's API format is different, this is simplified
+                        body = {
+                            model: 'claude-3-sonnet-20240229',
+                            max_tokens: 4000,
+                            messages: this.messages,
+                            tools: this.tools
+                        };
+                        break;
+
+                    case 'gemini':
+                        // Gemini doesn't support function calling in the same way
+                        // This is a simplified implementation
+                        endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+                        headers = {
+                            'Content-Type': 'application/json'
+                        };
+                        const lastMessage = this.messages[this.messages.length - 1];
+                        body = {
+                            contents: [{
+                                parts: [{
+                                    text: `${lastMessage.content}\n\nYou have access to these tools: ${JSON.stringify(this.tools, null, 2)}\n\nIf you need to use a tool, respond with JSON in this format: {"tool_calls": [{"function": {"name": "tool_name", "arguments": {"param": "value"}}}], "content": "your response"}`
+                                }]
+                            }]
+                        };
+                        break;
+
+                    default:
+                        throw new Error('Unsupported LLM provider');
+                }
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(body)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.text();
+                    throw new Error(`API call failed: ${response.status} - ${errorData}`);
+                }
+
+                const data = await response.json();
+                return this.parseResponse(data, provider);
+            }
+
+            parseResponse(data, provider) {
+                switch (provider) {
+                    case 'openai':
+                        const choice = data.choices[0];
+                        return {
+                            content: choice.message.content,
+                            tool_calls: choice.message.tool_calls || []
+                        };
+
+                    case 'anthropic':
+                        // Simplified - Anthropic's actual response format is more complex
+                        return {
+                            content: data.content[0].text,
+                            tool_calls: data.tool_calls || []
+                        };
+
+                    case 'gemini':
+                        const text = data.candidates[0].content.parts[0].text;
+                        try {
+                            const parsed = JSON.parse(text);
+                            return {
+                                content: parsed.content || text,
+                                tool_calls: parsed.tool_calls || []
+                            };
+                        } catch {
+                            return {
+                                content: text,
+                                tool_calls: []
+                            };
+                        }
+
+                    default:
+                        throw new Error('Unknown provider response format');
+                }
+            }
+
+            async handleToolCalls(toolCalls) {
+                const results = [];
+
+                for (const toolCall of toolCalls) {
+                    this.addToolCall(toolCall);
+                    
+                    try {
+                        const result = await this.executeTool(toolCall);
+                        results.push({
+                            tool_call_id: toolCall.id || `call_${Date.now()}`,
+                            content: JSON.stringify(result)
+                        });
+                        this.addToolResult(toolCall, result);
+                    } catch (error) {
+                        const errorResult = { error: error.message };
+                        results.push({
+                            tool_call_id: toolCall.id || `call_${Date.now()}`,
+                            content: JSON.stringify(errorResult)
+                        });
+                        this.addToolResult(toolCall, errorResult);
+                    }
+                }
+
+                return results;
+            }
+
+            async executeTool(toolCall) {
+                const functionName = toolCall.function.name;
+                const args = typeof toolCall.function.arguments === 'string' 
+                    ? JSON.parse(toolCall.function.arguments) 
+                    : toolCall.function.arguments;
+
+                switch (functionName) {
+                    case 'web_search':
+                        return await this.webSearch(args.query);
+                    case 'execute_code':
+                        return await this.executeCode(args.code);
+                    case 'ai_pipe':
+                        return await this.aiPipe(args.task, args.data);
+                    default:
+                        throw new Error(`Unknown tool: ${functionName}`);
+                }
+            }
+
+            async webSearch(query) {
+                const apiKey = document.getElementById('searchApiKey').value;
+                const searchEngineId = document.getElementById('searchEngineId').value;
+
+                if (!apiKey || !searchEngineId) {
+                    // Fallback to mock search results
+                    return {
+                        results: [
+                            {
+                                title: `Search results for: ${query}`,
+                                snippet: `This is a mock search result. To get real results, please provide Google Search API key and Custom Search Engine ID.`,
+                                link: '#'
+                            }
+                        ]
+                    };
+                }
+
+                try {
+                    const response = await fetch(
+                        `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`
+                    );
+
+                    if (!response.ok) {
+                        throw new Error('Search API error');
+                    }
+
+                    const data = await response.json();
+                    return {
+                        results: data.items ? data.items.slice(0, 5).map(item => ({
+                            title: item.title,
+                            snippet: item.snippet,
+                            link: item.link
+                        })) : []
+                    };
+                } catch (error) {
+                    return { error: 'Search failed: ' + error.message };
+                }
+            }
+
+            async executeCode(code) {
+                try {
+                    // Create a safe execution context
+                    const safeEval = new Function('console', 'document', 'window', `
+                        const results = [];
+                        const console = {
+                            log: (...args) => results.push(args.join(' ')),
+                            error: (...args) => results.push('ERROR: ' + args.join(' ')),
+                            warn: (...args) => results.push('WARN: ' + args.join(' '))
+                        };
+                        
+                        try {
+                            const result = (function() {
+                                ${code}
+                            })();
+                            
+                            if (result !== undefined) {
+                                results.push('Return value: ' + JSON.stringify(result));
+                            }
+                            
+                            return { output: results, success: true };
+                        } catch (error) {
+                            return { output: ['ERROR: ' + error.message], success: false, error: error.message };
+                        }
+                    `);
+
+                    const result = safeEval();
+                    return result;
+                } catch (error) {
+                    return {
+                        output: ['ERROR: Code execution failed: ' + error.message],
+                        success: false,
+                        error: error.message
+                    };
+                }
+            }
+
+            async aiPipe(task, data) {
+                // Mock AI Pipe implementation
+                // In a real implementation, this would call an actual AI pipeline service
+                
+                const mockResults = {
+                    'analyze': `Analysis of data: ${data.substring(0, 100)}...`,
+                    'summarize': `Summary: ${data.substring(0, 50)}...`,
+                    'translate': `Translated version of: ${data.substring(0, 50)}...`,
+                    'classify': `Classification result for: ${data.substring(0, 50)}...`
+                };
+
+                return {
+                    task: task,
+                    result: mockResults[task.toLowerCase()] || `Processed "${task}" task with data: ${data.substring(0, 100)}...`,
+                    timestamp: new Date().toISOString()
+                };
+            }
+
+            addMessage(role, content) {
+                const chatContainer = document.getElementById('chatContainer');
+                const messageDiv = document.createElement('div');
+                
+                if (role === 'user') {
+                    messageDiv.className = 'message user-message';
+                    messageDiv.innerHTML = `<strong>You:</strong> ${this.escapeHtml(content)}`;
+                } else {
+                    messageDiv.className = 'message agent-message';
+                    messageDiv.innerHTML = `<strong>🤖 Agent:</strong> ${this.formatContent(content)}`;
+                }
+
+                chatContainer.appendChild(messageDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+
+            addToolCall(toolCall) {
+                const chatContainer = document.getElementById('chatContainer');
+                const toolDiv = document.createElement('div');
+                toolDiv.className = 'tool-call';
+                
+                const args = typeof toolCall.function.arguments === 'string' 
+                    ? JSON.parse(toolCall.function.arguments) 
+                    : toolCall.function.arguments;
+                
+                toolDiv.innerHTML = `
+                    <strong>🔧 Tool Call:</strong> ${toolCall.function.name}<br>
+                    <small>Arguments: ${JSON.stringify(args, null, 2)}</small>
+                `;
+
+                chatContainer.appendChild(toolDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+
+            addToolResult(toolCall, result) {
+                const chatContainer = document.getElementById('chatContainer');
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'tool-result';
+
+                let resultHTML = `<strong>📊 Tool Result (${toolCall.function.name}):</strong><br>`;
+
+                if (toolCall.function.name === 'web_search' && result.results) {
+                    result.results.forEach(item => {
+                        resultHTML += `
+                            <div class="search-result">
+                                <h6>${this.escapeHtml(item.title)}</h6>
+                                <p>${this.escapeHtml(item.snippet)}</p>
+                                <a href="${item.link}" class="url" target="_blank">${item.link}</a>
+                            </div>
+                        `;
+                    });
+                } else if (toolCall.function.name === 'execute_code') {
+                    resultHTML += `
+                        <div class="code-execution">
+                            <strong>Execution ${result.success ? 'Success' : 'Failed'}:</strong>
+                            <div class="code-output">
+                                ${result.output.map(line => this.escapeHtml(line)).join('<br>')}
+                            </div>
+                        </div>
+                    `;
+                } else if (toolCall.function.name === 'ai_pipe') {
+                    resultHTML += `
+                        <div class="aipipe-result">
+                            <strong>Task:</strong> ${this.escapeHtml(result.task)}<br>
+                            <strong>Result:</strong> ${this.escapeHtml(result.result)}
+                        </div>
+                    `;
+                } else {
+                    resultHTML += `<pre>${this.escapeHtml(JSON.stringify(result, null, 2))}</pre>`;
+                }
+
+                resultDiv.innerHTML = resultHTML;
+                chatContainer.appendChild(resultDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+
+            formatContent(content) {
+                if (!content) return '';
+                
+                // Convert markdown-like formatting
+                return this.escapeHtml(content)
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    .replace(/`(.*?)`/g, '<code>$1</code>')
+                    .replace(/\n/g, '<br>');
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            showTyping(show) {
+                const typingIndicator = document.getElementById('typingIndicator');
+                typingIndicator.style.display = show ? 'block' : 'none';
+            }
+
+            showAlert(message, type) {
+                const alertContainer = document.getElementById('alertContainer');
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+                alertDiv.innerHTML = `
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                
+                alertContainer.innerHTML = '';
+                alertContainer.appendChild(alertDiv);
+                
+                // Auto-dismiss after 5 seconds
+                setTimeout(() => {
+                    if (alertDiv.parentNode) {
+                        alertDiv.remove();
+                    }
+                }, 5000);
+            }
+        }
+
+        // Initialize the agent when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.agent = new LLMAgent();
+        });
+
+        // Add some sample interactions for demo
+        function loadSample(type) {
+            const userInput = document.getElementById('userInput');
+            const samples = {
+                interview: "Interview me to create a blog post about my experience with AI tools.",
+                research: "Research the latest developments in quantum computing and summarize the key findings.",
+                code: "Help me create a simple calculator in JavaScript and test it.",
+                analysis: "Search for information about climate change effects in 2024 and analyze the data."
+            };
+            
+            if (samples[type]) {
+                userInput.value = samples[type];
+            }
+        }
+
+        // Add sample buttons after DOM loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const container = document.querySelector('.main-container');
+            const sampleDiv = document.createElement('div');
+            sampleDiv.innerHTML = `
+                <div class="text-center mb-3">
+                    <small class="text-muted">Quick samples:</small><br>
+                    <button class="btn btn-sm btn-outline-primary me-2 mt-1" onclick="loadSample('interview')">Interview Mode</button>
+                    <button class="btn btn-sm btn-outline-primary me-2 mt-1" onclick="loadSample('research')">Research Task</button>
+                    <button class="btn btn-sm btn-outline-primary me-2 mt-1" onclick="loadSample('code')">Code Helper</button>
+                    <button class="btn btn-sm btn-outline-primary mt-1" onclick="loadSample('analysis')">Data Analysis</button>
+                </div>
+            `;
+            
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.parentNode.insertBefore(sampleDiv, chatContainer);
+        });
+
+        window.loadSample = loadSample;
+    </script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
